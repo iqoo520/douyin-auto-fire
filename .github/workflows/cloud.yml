@@ -47,14 +47,15 @@ jobs:
           PY
       - name: Write protected configuration
         env:
-          STATE: ${{ secrets.DOUYIN_STORAGE_STATE }}
+          STATE: ${{ secrets.DOUYIN_STORAGE_STATE_GZIP }}
           CONFIG: ${{ secrets.DOUYIN_CONFIG }}
         run: |
           python - <<'PY'
-          import json, os
+          import base64, gzip, json, os
           from pathlib import Path
           for key, filename in [('STATE', 'storage-state.json'), ('CONFIG', 'config.json')]:
-              data = json.loads(os.environ[key])
+              raw = gzip.decompress(base64.b64decode(os.environ[key])) if key == 'STATE' else os.environ[key]
+              data = json.loads(raw)
               path = Path(filename)
               path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
               path.chmod(0o600)
