@@ -1,0 +1,82 @@
+name: Douyin Cloud Daily Noon
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Verify login and friends without sending messages
+        type: boolean
+        default: true
+  schedule:
+    - cron: '0 4 * * *'
+
+concurrency:
+  group: douyin-cloud-sender
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    if: github.event_name == 'workflow_dispatch' || vars.SEND_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HEADLESS: 'true'
+      TRACE: 'false'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Write protected configuration
+        env:
+          STATE: ${{ secrets.DOUYIN_STORAGE_STATE }}
+          CONFIG: ${{ secrets.DOUYIN_CONFIG }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          for key, filename in [('STATE', 'storage-state.json'), ('CONFIG', 'config.json')]:
+              data = json.loads(os.environ[key])
+              path = Path(filename)
+              path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+              path.chmod(0o600)
+          PY
+      - uses: actions/cache/restore@v4
+        with:
+          path: artifacts/history.json
+          key: douyin-history-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: douyin-history-
+      - name: Check or send
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$DRY_RUN" = true ]; then
+            python run.py --dry-run
+          else
+            python run.py
+          fi
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('artifacts/history.json') != ''
+        with:
+          path: artifacts/history.json
+          key: douyin-history-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Job summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('artifacts/result.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
+              if p.exists():
+                  r = json.loads(p.read_text(encoding='utf-8'))
+                  out.write('Result details are available in the Check or send step logs.\n')
+              else:
+                  out.write('Run did not produce a result. Inspect the failed step.\n')
+          PY
