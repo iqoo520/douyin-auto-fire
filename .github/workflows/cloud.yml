@@ -33,6 +33,18 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
+      - name: Hash private names in history keys
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/history.py')
+          source = p.read_text(encoding='utf-8')
+          old = 'return f"{task_id}:{run_date}:{target}:{message_id}"'
+          new = 'return __import__("hashlib").sha256(f"{task_id}:{run_date}:{target}:{message_id}".encode("utf-8")).hexdigest()'
+          if old not in source:
+              raise SystemExit('Unexpected history implementation; stopped to protect private names')
+          p.write_text(source.replace(old, new), encoding='utf-8')
+          PY
       - name: Write protected configuration
         env:
           STATE: ${{ secrets.DOUYIN_STORAGE_STATE }}
@@ -76,7 +88,10 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
               if p.exists():
                   r = json.loads(p.read_text(encoding='utf-8'))
-                  out.write('Result details are available in the Check or send step logs.\n')
+                  results = r['results']
+                  ok = sum(x['status'] == 'success' for x in results)
+                  sent = sum(x['sent'] for x in results)
+                  out.write(f"Dry-run: {r['dry_run']} | Targets OK: {ok}/{len(results)} | Sent: {sent}\n")
               else:
                   out.write('Run did not produce a result. Inspect the failed step.\n')
           PY
