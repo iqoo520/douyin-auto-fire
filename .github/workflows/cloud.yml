@@ -9,7 +9,8 @@ on:
         default: true
   schedule:
     # UTC 04:00 = Asia/Shanghai 12:00; later checks use daily send history.
-    - cron: '0,17,37 4 * * *'
+    - cron: '0 4 * * *'
+    - cron: '17,37 4 * * *'
 
 concurrency:
   group: douyin-cloud-sender
